@@ -8,922 +8,1232 @@
 </head>
 
 <body>
-    <pre id="keywords">
-         Identify and resolve lexical, syntactic, and semantic ambiguities in sentences using rule-
-based and statistical methods.=lexi
-        
-        Implement a basic NLP system with tokenization, POS tagging, and named entity recognition= token
-        Implement a morphological parser for English words (e.g., pluralization, verb conjugation) using FSTs=fst
-        Build and evaluate a bigram/trigram language model for text prediction= bitrigram
-        Implement Lesk algorithm or another WSD technique to resolve word meanings in context= lesk
-        Identify semantic roles (agent, patient, instrument) in sentences using dependency parsing.= roles
-        Implement LEXRANK or TextRank to generate summaries from news articles.= textrank
-        Train a sentiment classifier (Naive Bayes, LSTM, or BERT) on IMDb reviews.= sentiment
-        
+
+    <pre id="policy">
+        #
+
+**1.Policy evaluation using Monte Carlo Method (using any method for 4×4 grid world)**
+
+
+import numpy as np
+from collections import defaultdict
+np.random.seed(0)
+
+# -------- GRID SIZE --------
+rows = 4
+cols = 4
+n = rows * cols
+
+# terminal states
+terminal = [0, n-1]
+
+# actions = L, R, U, D
+actions = [(0,-1),(0,1),(-1,0),(1,0)]
+
+def step(s, a):
+    r, c = divmod(s, cols)
+    dr, dc = a
+    nr, nc = r + dr, c + dc
+
+    # invalid move → stay in same state
+    if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
+        nr, nc = r, c
+
+    ns = nr * cols + nc
+    return ns, -1      # reward = -1
+
+
+# -------- RANDOM POLICY (π(a|s) = 1/4) --------
+def policy(s):
+    return actions[np.random.randint(4)]
+
+
+# -------- MONTE CARLO POLICY EVALUATION --------
+V = defaultdict(float)
+returns = defaultdict(list)
+
+episodes = 5000
+
+for _ in range(episodes):
+
+    # start from a random NON-terminal state
+    s = np.random.randint(1, n-1)
+    while s in terminal:
+        s = np.random.randint(1, n-1)
+
+    episode = []
+
+    # generate full episode
+    while True:
+        a = policy(s)
+        ns, r = step(s, a)
+        episode.append((s, r))
+
+        if ns in terminal:
+            break
+        s = ns
+
+    # FIRST-VISIT MC UPDATE
+    G = 0
+    visited = set()
+
+    for s, r in reversed(episode):
+        G += r
+        if s not in visited:
+            visited.add(s)
+            returns[s].append(G)
+            V[s] = np.mean(returns[s])
+
+
+# -------- PRINT VALUE FUNCTION --------
+value_grid = np.zeros((rows, cols))
+for s, v in V.items():
+    value_grid[s // cols][s % cols] = round(v, 2)
+
+print("Monte Carlo Value Function (4x4 Grid):\n")
+print(value_grid)
+
 
     </pre>
 
+    <pre id="mdp">
+        #Q2: Simple MDP simulation in a 4×4 grid world for Markov Decision Process (MDP) for planning with Value Iteration
+import numpy as np
 
-    <pre id="lexi">
-        # ==============================================================
-# Lab 1: Identify and resolve lexical, syntactic, and semantic ambiguities in sentences using rule-based and statistical methods.
-# ==============================================================
+GRID_SIZE = 4
+STATE_COUNT = GRID_SIZE * GRID_SIZE
+TERMINAL_STATES = [0, STATE_COUNT - 1]
+ACTIONS = ["U", "D", "L", "R"]
+GAMMA = 1.0
+THRESHOLD = 1e-4
 
-# Downloads for NLTK (fixes all LookupErrors)
-import nltk
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('wordnet')
-nltk.download('stopwords')
-nltk.download('omw-1.4')
-nltk.download('averaged_perceptron_tagger_eng')
-nltk.download('universal_tagset')
+V = np.zeros(STATE_COUNT)
 
-from nltk.corpus import wordnet as wn
-from nltk.corpus import stopwords
-from collections import Counter
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.naive_bayes import MultinomialNB
+def state_to_pos(state):
+    return state // GRID_SIZE, state % GRID_SIZE
 
-# ==============================================================
-# 1. Lexical Ambiguity Resolution
-# ==============================================================
+def pos_to_state(row, col):
+    return row * GRID_SIZE + col
 
-STOP = set(stopwords.words('english'))
+def step(state, action):
+    if state in TERMINAL_STATES:
+        return state, 0
 
-# --- Rule-based: Simplified Lesk Algorithm ---
-def simple_lesk(target_word, sentence):
-    sent_tokens = [w.lower() for w in nltk.word_tokenize(sentence)]
-    best_sense = None
-    max_overlap = 0
-    for syn in wn.synsets(target_word):
-        signature = ' '.join([syn.definition()] + syn.examples() + list(syn.lemma_names()))
-        sig_tokens = [w.lower() for w in nltk.word_tokenize(signature)]
-        sig_tokens = [w for w in sig_tokens if w.isalpha() and w not in STOP]
-        overlap = sum((Counter(sig_tokens) & Counter(sent_tokens)).values())
-        if overlap > max_overlap:
-            max_overlap = overlap
-            best_sense = syn
-    return best_sense
+    r, c = state_to_pos(state)
 
-# Example sentences
-sent1 = "He went to the bank to deposit his paycheck."
-sent2 = "They sat on the bank of the river to watch the sunset."
+    if action == "U": r = max(r - 1, 0)
+    elif action == "D": r = min(r + 1, GRID_SIZE - 1)
+    elif action == "L": c = max(c - 1, 0)
+    elif action == "R": c = min(c + 1, GRID_SIZE - 1)
 
-print("Lesk result 1:", simple_lesk("bank", sent1))
-print("Lesk result 2:", simple_lesk("bank", sent2))
+    next_state = pos_to_state(r, c)
+    reward = -1
+    return next_state, reward
 
+iteration = 0
+while True:
+    delta = 0
+    new_V = np.copy(V)
 
-# --- Statistical: Naive Bayes for 'bank' senses ---
-train_examples = [
-    ("I deposited money at the bank", "finance"),
-    ("She took a loan from the bank", "finance"),
-    ("The bank closed early on Friday", "finance"),
-    ("The river bank was full of wildflowers", "river"),
-    ("He walked along the bank listening to the water", "river"),
-    ("Cattle grazed on the bank after the rain", "river")
-]
+    for s in range(STATE_COUNT):
+        if s in TERMINAL_STATES:
+            continue
 
-vectorizer = CountVectorizer(stop_words='english')
-X_train = vectorizer.fit_transform([t for t, _ in train_examples])
-y_train = [lbl for _, lbl in train_examples]
+        values = []
+        for action in ACTIONS:
+            next_state, reward = step(s, action)
+            values.append(reward + GAMMA * V[next_state])
 
-clf = MultinomialNB().fit(X_train, y_train)
+        new_V[s] = max(values)
+        delta = max(delta, abs(V[s] - new_V[s]))
 
-def predict_bank_sense(sentence):
-    x = vectorizer.transform([sentence])
-    pred = clf.predict(x)[0]
-    return pred, dict(zip(clf.classes_, clf.predict_proba(x)[0]))
+    V = new_V
+    iteration += 1
 
-print("NB prediction 1:", predict_bank_sense(sent1))
-print("NB prediction 2:", predict_bank_sense(sent2))
+    if delta < THRESHOLD:
+        break
 
+print("Converged in", iteration, "iterations")
+print("\nOptimal Value Function:")
+print(np.round(V.reshape(GRID_SIZE, GRID_SIZE), 2))
 
-# ==============================================================
-# 2. Syntactic Ambiguity Resolution
-# ==============================================================
-
-from nltk import CFG, ChartParser, PCFG, ViterbiParser
-
-# --- Rule-based: CFG with multiple parses ---
-grammar = CFG.fromstring("""
-S -> NP VP
-NP -> 'I' | 'the' N | 'the' N PP
-N -> 'man' | 'telescope'
-VP -> V NP | VP PP
-V -> 'saw'
-PP -> P NP
-P -> 'with'
-""")
-
-parser = ChartParser(grammar)
-sentence = "I saw the man with the telescope".split()
-
-print("\nAll parses (rule-based CFG):")
-for tree in parser.parse(sentence):
-    print(tree)
-    tree.pretty_print()
-
-# --- Statistical: PCFG selects most probable parse ---
-pcfg = PCFG.fromstring("""
-S -> NP VP [1.0]
-NP -> 'I' [0.2] | Det N [0.4] | Det N PP [0.4]
-VP -> V NP [0.6] | VP PP [0.4]
-Det -> 'the' [1.0]
-N -> 'man' [0.5] | 'telescope' [0.5]
-V -> 'saw' [1.0]
-PP -> P NP [1.0]
-P -> 'with' [1.0]
-""")
-
-viterbi_parser = ViterbiParser(pcfg)
-
-print("\nMost probable parse (PCFG):")
-for tree in viterbi_parser.parse(sentence):
-    print(tree)
-    tree.pretty_print()
-    break
-
-
-# ==============================================================
-# 3. Semantic Ambiguity Resolution
-# ==============================================================
-
-# --- Rule-based: POS heuristic ---
-sent = "Visiting relatives can be annoying."
-tokens = nltk.word_tokenize(sent)
-pos = nltk.pos_tag(tokens, tagset='universal')  # use universal tagset
-print("\nPOS tags:", pos)
-
-def disambiguate_visiting(sentence):
-    tokens = nltk.word_tokenize(sentence)
-    pos = nltk.pos_tag(tokens, tagset='universal')
-    if pos[0][1] == 'VERB' and pos[1][1] == 'NOUN':
-        return "Gerund reading: 'Visiting relatives' = the act of visiting is annoying."
+policy = {}
+for s in range(STATE_COUNT):
+    if s in TERMINAL_STATES:
+        policy[s] = None
     else:
-        return "Participle reading: 'Visiting relatives' = relatives who are visiting."
+        q_values = []
+        for action in ACTIONS:
+            next_state, reward = step(s, action)
+            q_values.append(reward + GAMMA * V[next_state])
+        best_action = ACTIONS[np.argmax(q_values)]
+        policy[s] = best_action
 
-print(disambiguate_visiting(sent))
+print("\nOptimal Policy (as arrows):")
+policy_symbols = {"U": "↑", "D": "↓", "L": "←", "R": "→", None: "T"}
 
+output = []
+for s in range(STATE_COUNT):
+    output.append(policy_symbols[policy[s]])
+output = np.array(output).reshape(GRID_SIZE, GRID_SIZE)
+print(output)
 
-# --- Statistical: Cue-based similarity ---
-cue_activity = {"visit", "going", "travel", "trip", "activity"}
-cue_people = {"relative", "family", "friend", "guest", "visitor"}
-
-def cue_disambiguate(sentence):
-    words = set(w.lower() for w in nltk.word_tokenize(sentence) if w.isalpha())
-    score_activity = len(words & cue_activity)
-    score_people = len(words & cue_people)
-    if score_activity > score_people:
-        return "Activity sense (the action of visiting)."
-    elif score_people > score_activity:
-        return "People sense (relatives who are visiting)."
-    else:
-        return "Undecided by cues."
-
-print("Cue method 1:", cue_disambiguate("Visiting relatives can be annoying."))
-print("Cue method 2:", cue_disambiguate("Relatives visiting the city can be noisy."))
-
-        
 
     </pre>
-    <pre id="token">
-        # Lab 2:Implement a basic NLP system with tokenization, POS tagging, and named entity recognition (NER).
-#Install required packages before running:
-# pip install nltk spacy transformers
-# python -m spacy download en_core_web_sm
 
-import nltk
-import spacy
-from nltk.tokenize import word_tokenize, sent_tokenize
-from transformers import pipeline
+    <pre id="mdprollout">
+        # Simple MDP simulation in a 4x4 grid world for markov decision process (MDP) for Rollout the optimal policy from (0,0)
 
-# Download NLTK resources
-nltk.download("punkt")
-nltk.download("averaged_perceptron_tagger")
-nltk.download("punkt_tab")
-nltk.download("averaged_perceptron_tagger_eng") # Added this line to resolve the LookupError
+import numpy as np
 
-# Load SpaCy model
-nlp = spacy.load("en_core_web_sm")
+# Gridworld parameters
+N_ROWS = 4
+N_COLS = 4
+N_STATES = N_ROWS * N_COLS
+ACTIONS = ['U', 'D', 'L', 'R']
+ACTION_DELTAS = {
+    'U': (-1, 0),
+    'D': (1, 0),
+    'L': (0, -1),
+    'R': (0, 1),
+}
+TERMINAL_STATES = [0, 15]
 
-text = "Google acquired DeepMind in London for $500 million."
-
-# Tokenization
-tokens = word_tokenize(text)
-print("Word Tokens:", tokens)
-
-sent_tokens = sent_tokenize(text)
-print("\nSentence Tokens:", sent_tokens)
-
-# POS Tagging
-pos_tags = nltk.pos_tag(tokens)
-print("\nPOS Tags:", pos_tags)
-
-# Named Entity Recognition using SpaCy
-doc = nlp(text)
-print("\nNER (SpaCy):")
-for ent in doc.ents:
-    print(ent.text, "->", ent.label_)
-
-# Named Entity Recognition using Transformer Model
-ner_model = pipeline("ner", grouped_entities=True)
-print("\nNER (Transformer):")
-print(ner_model(text))
-     
-
-    </pre>
-    <pre id="fst">
-     # -----------------------------------------------------------
-# AIM: Implement a morphological parser for English words(e.g., pluralization, verb conjugation) using FSTs
-# -----------------------------------------------------------
-
-# Import libraries
-import re
-
-# -----------------------------------------------------------
-# 1. Irregular Lexicon (Exception Handling)
-# -----------------------------------------------------------
-IRREGULAR_NOUNS = {
-    "child": "children",
-    "mouse": "mice",
-    "man": "men",
-    "woman": "women",
-    "person": "people",
-    "foot": "feet",
-    "tooth": "teeth",
-    "goose": "geese",
+ARROWS = {
+    'U': '↑',
+    'D': '↓',
+    'L': '←',
+    'R': '→',
+    'T': 'T'
 }
 
-IRREGULAR_VERBS_PAST = {
-    "go": "went",
-    "be": "was",
-    "eat": "ate",
-    "run": "ran",
-    "come": "came",
-    "have": "had",
-    "make": "made",
-    "see": "saw",
-    "write": "wrote",
-}
+def state_to_pos(s):
+    return divmod(s, N_COLS)
 
-# -----------------------------------------------------------
-# 2. Morphological Generators (Lexical → Surface)
-# -----------------------------------------------------------
+def pos_to_state(r, c):
+    return r * N_COLS + c
 
-def pluralize(noun):
-    """Generate plural form of English nouns."""
-    if noun in IRREGULAR_NOUNS:
-        return IRREGULAR_NOUNS[noun]
-    if re.search(r"(s|x|z|ch|sh)$", noun):
-        return noun + "es"             # e.g., box → boxes
-    if re.search(r"[^aeiou]y$", noun):
-        return noun[:-1] + "ies"       # e.g., city → cities
-    return noun + "s"                  # default → add s
+def step(state, action):
+    """Returns next_state, reward."""
+    if state in TERMINAL_STATES:
+        return state, 0
 
+    r, c = state_to_pos(state)
+    dr, dc = ACTION_DELTAS[action]
+    nr = min(max(r + dr, 0), N_ROWS - 1)
+    nc = min(max(c + dc, 0), N_COLS - 1)
+    next_state = pos_to_state(nr, nc)
 
-def past_tense(verb):
-    """Generate past tense of verbs."""
-    if verb in IRREGULAR_VERBS_PAST:
-        return IRREGULAR_VERBS_PAST[verb]
-    if verb.endswith("e"):
-        return verb + "d"              # e.g., live → lived
-    if re.search(r"[^aeiou]y$", verb):
-        return verb[:-1] + "ied"       # e.g., try → tried
-    if re.search(r"[aeiou][bcdfghjklmnpqrstvwxyz]$", verb):
-        return verb + verb[-1] + "ed"  # e.g., stop → stopped
-    return verb + "ed"                 # default rule
+    reward = -1
+    return next_state, reward
 
+def value_iteration(gamma=1.0, theta=1e-4):
+    """Runs Value Iteration and returns optimal V and optimal policy."""
+    V = np.zeros(N_STATES)
 
-def present_participle(verb):
-    """Generate present participle (-ing) form."""
-    if verb.endswith("ie"):
-        return verb[:-2] + "ying"      # e.g., lie → lying
-    if verb.endswith("e") and not verb.endswith("ee"):
-        return verb[:-1] + "ing"       # e.g., make → making
-    if re.search(r"[aeiou][bcdfghjklmnpqrstvwxyz]$", verb):
-        return verb + verb[-1] + "ing" # e.g., run → running
-    return verb + "ing"                # default rule
+    while True:
+        delta = 0
+        new_V = np.copy(V)
 
+        for s in range(N_STATES):
+            if s in TERMINAL_STATES:
+                continue
 
-# -----------------------------------------------------------
-# 3. Morphological Analyzers (Surface → Lexical + Features)
-# -----------------------------------------------------------
+            q_values = []
+            for a in ACTIONS:
+                ns, r = step(s, a)
+                q_values.append(r + gamma * V[ns])
 
-def analyze_plural(word):
-    """Analyze plural nouns."""
-    for base, plural in IRREGULAR_NOUNS.items():
-        if word == plural:
-            return f"{base}+N+PL"
-    if re.search(r"ies$", word):
-        return f"{word[:-3]}y+N+PL"
-    if re.search(r"(es)$", word):
-        return f"{word[:-2]}+N+PL"
-    if word.endswith("s"):
-        return f"{word[:-1]}+N+PL"
-    return "UNKNOWN"
+            new_V[s] = max(q_values)
+            delta = max(delta, abs(new_V[s] - V[s]))
 
+        V = new_V
+        if delta < theta:
+            break
 
-def analyze_past(word):
-    """Analyze past tense verbs."""
-    for base, past in IRREGULAR_VERBS_PAST.items():
-        if word == past:
-            return f"{base}+V+PAST"
-    if re.search(r"ied$", word):
-        return f"{word[:-3]}y+V+PAST"
-    if re.search(r"([bcdfghjklmnpqrstvwxyz])\\1ed$", word):
-        return f"{word[:-3]}+V+PAST"
-    if word.endswith("ed"):
-        return f"{word[:-2]}+V+PAST"
-    return "UNKNOWN"
+    # Extract optimal policy
+    policy = np.empty(N_STATES, dtype=str)
+    for s in range(N_STATES):
+        if s in TERMINAL_STATES:
+            policy[s] = 'T'
+            continue
 
+        q_values = []
+        for a in ACTIONS:
+            ns, r = step(s, a)
+            q_values.append((r + gamma * V[ns], a))
 
-def analyze_ing(word):
-    """Analyze present participle verbs."""
-    if word.endswith("ying"):
-        return f"{word[:-4]}ie+V+PROG"
-    if re.search(r"([bcdfghjklmnpqrstvwxyz])\\1ing$", word):
-        return f"{word[:-4]}+V+PROG"
-    if word.endswith("ing"):
-        return f"{word[:-3]}+V+PROG"
-    return "UNKNOWN"
+        policy[s] = max(q_values)[1]
 
+    return V, policy
 
-# -----------------------------------------------------------
-# 4. High-Level Wrapper
-# -----------------------------------------------------------
+def rollout_policy(policy, start_state=0):
+    """Simulates following the optimal policy from start_state."""
+    state = start_state
+    trajectory = []
 
-def generate(lemma, pos, feature):
-    """Generate word form given lemma, POS, and morphological feature."""
-    if pos == "N" and feature == "PL":
-        return pluralize(lemma)
-    if pos == "V" and feature == "PAST":
-        return past_tense(lemma)
-    if pos == "V" and feature == "PROG":
-        return present_participle(lemma)
-    return lemma
+    while True:
+        trajectory.append(state)
+        if state in TERMINAL_STATES:
+            break
+        action = policy[state]
+        next_state, reward = step(state, action)
+        state = next_state
 
+    return trajectory
 
-def analyze(word):
-    """Return possible analyses for the word."""
-    analyses = []
-    plural = analyze_plural(word)
-    if plural != "UNKNOWN":
-        analyses.append(plural)
-    past = analyze_past(word)
-    if past != "UNKNOWN":
-        analyses.append(past)
-    ing = analyze_ing(word)
-    if ing != "UNKNOWN":
-        analyses.append(ing)
-    return analyses or ["UNKNOWN"]
+def print_grid(values):
+    for r in range(N_ROWS):
+        row = values[r*N_COLS:(r+1)*N_COLS]
+        print(" ".join(f"{x:6.2f}" if isinstance(x, (int,float)) else f"  {x}  " for x in row))
+    print()
 
+def print_policy_grid(policy):
+    arrow_policy = [ARROWS[p] for p in policy]
+    for r in range(N_ROWS):
+        row = arrow_policy[r*N_COLS:(r+1)*N_COLS]
+        print(" ".join(f"  {x}  " for x in row))
+    print()
 
-# -----------------------------------------------------------
-# 5. Demonstration / Test
-# -----------------------------------------------------------
 if __name__ == "__main__":
-    print("=== GENERATION (Lexical → Surface) ===")
-    print("cat + N + PL  →", generate("cat", "N", "PL"))
-    print("city + N + PL →", generate("city", "N", "PL"))
-    print("try + V + PAST →", generate("try", "V", "PAST"))
-    print("run + V + PROG →", generate("run", "V", "PROG"))
-    print("go + V + PAST →", generate("go", "V", "PAST"))
-    print("make + V + PROG →", generate("make", "V", "PROG"))
+    # Step 1: Compute optimal V and policy
+    V, policy = value_iteration()
 
-    print("\n=== ANALYSIS (Surface → Lexical + Features) ===")
-    words = ["cats", "cities", "stopped", "running", "making", "went", "children"]
-    for w in words:
-        print(f"{w:10} → {analyze(w)}")
+    print("\nOptimal Value Function:")
+    print_grid(V)
+
+    print("Optimal Policy (arrows):")
+    print_policy_grid(policy)
+
+    # Step 2: Rollout from (0,0)
+    print("Rollout from start (0,0):")
+    trajectory = rollout_policy(policy, start_state=0)
+    print(" → ".join(str(s) for s in trajectory))
 
     </pre>
 
-    <pre id="bitrigram">
-        # ===================================================
-# lab4:Build and evaluate a bigram/trigram language model for text prediction.
-# ===================================================
+    <pre id="mdpunknown">
+        # Simple MDP simulation in a 4x4 grid world for Markov Decision Process (MDP)
+# Learn from interaction with Q-learning (unknown model)
 
-import nltk
-from nltk import word_tokenize, FreqDist
-from nltk.util import ngrams
-import math
+import numpy as np
+import random
+
+# Gridworld parameters
+N_ROWS = 4
+N_COLS = 4
+N_STATES = N_ROWS * N_COLS
+ACTIONS = ['U', 'D', 'L', 'R']
+ACTION_DELTAS = {
+    'U': (-1, 0),
+    'D': (1, 0),
+    'L': (0, -1),
+    'R': (0, 1),
+}
+TERMINAL_STATES = [0, 15]
+
+# Arrow symbols
+ARROWS = {
+    'U': '↑',
+    'D': '↓',
+    'L': '←',
+    'R': '→',
+    'T': 'T'
+}
+
+# --- Helpers ---
+def pos_to_state(r, c):
+    return r * N_COLS + c
+
+def state_to_pos(s):
+    return divmod(s, N_COLS)
+
+def step(state, action):
+    """Environment transition: returns next_state, reward, done."""
+    if state in TERMINAL_STATES:
+        return state, 0, True
+
+    r, c = state_to_pos(state)
+    dr, dc = ACTION_DELTAS[action]
+
+    nr = min(max(r + dr, 0), N_ROWS - 1)
+    nc = min(max(c + dc, 0), N_COLS - 1)
+    next_state = pos_to_state(nr, nc)
+
+    reward = -1
+    done = next_state in TERMINAL_STATES
+    return next_state, reward, done
+
+# --- Q-learning ---
+def q_learning(alpha=0.1, gamma=0.99, epsilon=0.1, episodes=5000, max_steps=100):
+    Q = np.zeros((N_STATES, len(ACTIONS)))
+
+    for ep in range(episodes):
+        state = random.choice([s for s in range(N_STATES) if s not in TERMINAL_STATES])
+
+        for _ in range(max_steps):
+            # ε-greedy selection
+            if random.random() < epsilon:
+                action_idx = random.randint(0, len(ACTIONS) - 1)
+            else:
+                action_idx = np.argmax(Q[state])
+
+            action = ACTIONS[action_idx]
+            next_state, reward, done = step(state, action)
+
+            # Q-learning update
+            td_target = reward + gamma * np.max(Q[next_state])
+            Q[state, action_idx] += alpha * (td_target - Q[state, action_idx])
+
+            state = next_state
+            if done:
+                break
+
+    return Q
+
+def extract_policy(Q):
+    """Greedy policy using arrow symbols."""
+    policy = []
+    for s in range(N_STATES):
+        if s in TERMINAL_STATES:
+            policy.append(ARROWS['T'])
+        else:
+            best_a = ACTIONS[np.argmax(Q[s])]
+            policy.append(ARROWS[best_a])
+    return policy
+
+def rollout(policy, start_state):
+    """Rollout the learned policy."""
+    state = start_state
+    traj = [state]
+
+    while state not in TERMINAL_STATES:
+        # Convert arrow back to action letter
+        arrow_to_action = {v: k for k, v in ARROWS.items()}
+        action = arrow_to_action[policy[state]]
+
+        next_state, reward, done = step(state, action)
+        traj.append(next_state)
+        state = next_state
+        if done:
+            break
+    return traj
+
+def print_grid(values):
+    for r in range(N_ROWS):
+        row = values[r*N_COLS:(r+1)*N_COLS]
+        print(" ".join(f"  {v}  " for v in row))
+    print()
+
+# --- Run training ---
+if __name__ == "__main__":
+    Q = q_learning(episodes=8000)
+    policy = extract_policy(Q)
+
+    print("\nLearned Q-values:")
+    for s in range(N_STATES):
+        print(f"State {s}: {Q[s]}")
+
+    print("\nLearned Policy (arrows):")
+    print_grid(policy)
+
+    print("Rollout from start state (0,1):")
+    print(rollout(policy, start_state=1))
+
+    </pre>
+
+    <pre id="td0">
+
+#TD(0) Learning
+
+import numpy as np
+import random
+
+# -----------------------------
+# Simple Random Walk Environment
+# -----------------------------
+class RandomWalkEnv:
+    """
+    States: 0 1 2 3 4 5 6
+    0 and 6 are terminal states.
+    Start state = 3 every episode.
+    Reward = +1 only when reaching state 6, else 0.
+    """
+    def __init__(self):
+        self.start_state = 3
+        self.terminal_states = [0, 6]
+        self.state = self.start_state
+
+    def reset(self):
+        """Reset environment to start of episode."""
+        self.state = self.start_state
+        return self.state
+
+    def step(self, action):
+        """
+        action: -1 = move left, +1 = move right
+        returns: next_state, reward, done
+        """
+        next_state = self.state + action
+
+        # Reward only if right terminal (state 6)
+        if next_state == 6:
+            reward = 1.0
+        else:
+            reward = 0.0
+
+        self.state = next_state
+        done = next_state in self.terminal_states
+        return next_state, reward, done
+
+
+# -----------------------------
+# TD(0) Algorithm (Prediction)
+# -----------------------------
+def td0_prediction(num_episodes=100, alpha=0.1, gamma=1.0):
+    """
+    Temporal Difference (TD(0)) Learning to estimate V(s).
+
+    num_episodes: how many episodes to run
+    alpha: learning rate
+    gamma: discount factor
+    """
+    env = RandomWalkEnv()
+
+    # There are 7 states: 0 to 6
+    # Initialize value function V(s)
+    V = np.zeros(7)
+
+    # Terminal states are fixed (by definition of the problem)
+    V[0] = 0.0
+    V[6] = 0.0
+
+    for episode in range(num_episodes):
+        state = env.reset()
+
+        while True:
+            # Policy: choose left or right with equal probability
+            action = random.choice([-1, 1])
+
+            next_state, reward, done = env.step(action)
+
+            # TD(0) Update:
+            # V(s) ← V(s) + α [ r + γ V(s') - V(s) ]
+            td_target = reward + gamma * V[next_state]
+            td_error = td_target - V[state]
+            V[state] = V[state] + alpha * td_error
+
+            state = next_state
+
+            if done:
+                break
+
+    return V
+
+
+if __name__ == "__main__":
+    # Run TD(0)
+    num_episodes = 200  # you can increase for better estimates
+    alpha = 0.1
+    gamma = 1.0
+
+    V = td0_prediction(num_episodes=num_episodes, alpha=alpha, gamma=gamma)
+
+    print("Estimated State Values after TD(0):")
+    for s in range(7):
+        print(f"V({s}) = {V[s]:.3f}")
+
+    </pre>
+
+    <pre id="td1">
+
+#TD(lambda)Learning
+import numpy as np
+import random
+
+# -----------------------------
+# Simple Random Walk Environment
+# -----------------------------
+class RandomWalkEnv:
+    """
+    States: 0 1 2 3 4 5 6
+    0 and 6 are terminal states.
+    Start state = 3 every episode.
+    Reward = +1 only when reaching state 6, else 0.
+    """
+    def __init__(self):
+        self.start_state = 3
+        self.terminal_states = [0, 6]
+        self.state = self.start_state
+
+    def reset(self):
+        """Reset environment to start of episode."""
+        self.state = self.start_state
+        return self.state
+
+    def step(self, action):
+        """
+        action: -1 = move left, +1 = move right
+        returns: next_state, reward, done
+        """
+        next_state = self.state + action
+
+        # Reward only if right terminal (state 6)
+        if next_state == 6:
+            reward = 1.0
+        else:
+            reward = 0.0
+
+        self.state = next_state
+        done = next_state in self.terminal_states
+        return next_state, reward, done
+
+
+# -----------------------------
+# TD(λ) Algorithm (Prediction)
+# -----------------------------
+def td_lambda_prediction(num_episodes=100, alpha=0.1, gamma=1.0, lam=0.8):
+    """
+    Temporal Difference TD(λ) Learning to estimate V(s) using eligibility traces.
+
+    num_episodes: number of episodes
+    alpha       : learning rate
+    gamma       : discount factor
+    lam         : lambda parameter (0 <= λ <= 1)
+    """
+    env = RandomWalkEnv()
+
+    # There are 7 states: 0 to 6
+    V = np.zeros(7)
+
+    # terminal values
+    V[0] = 0.0
+    V[6] = 0.0
+
+    for episode in range(num_episodes):
+        state = env.reset()
+
+        # Initialize eligibility traces to 0 for all states
+        E = np.zeros(7)
+
+        while True:
+            # Behaviour policy: random left/right
+            action = random.choice([-1, 1])
+
+            next_state, reward, done = env.step(action)
+
+            # TD error δ = r + γ V(s') − V(s)
+            td_target = reward + gamma * V[next_state]
+            td_error = td_target - V[state]
+
+            # Increase eligibility of current state
+            E[state] += 1.0     # accumulating traces
+
+            # Update all states' values using their eligibility
+            V += alpha * td_error * E
+
+            # Decay eligibility traces
+            E *= gamma * lam
+
+            state = next_state
+
+            if done:
+                break
+
+    return V
+
+
+if __name__ == "__main__":
+    num_episodes = 200
+    alpha = 0.1
+    gamma = 1.0
+    lam = 0.8
+
+    V = td_lambda_prediction(num_episodes=num_episodes,
+                             alpha=alpha, gamma=gamma, lam=lam)
+
+    print("Estimated State Values after TD(λ):")
+    for s in range(7):
+        print(f"V({s}) = {V[s]:.3f}")
+
+    </pre>
+
+    <pre id="sarsa">
+        #**7.Implement SARSA**
+import numpy as np
+np.random.seed(3)
+
+terminal=[0,15]
+actions=[-1,1,-4,4]
+
+def step(s,a):
+    ns=s+a
+    if s%4==0 and a==-1: ns=s
+    if s%4==3 and a==1:  ns=s
+    if s<4 and a==-4:    ns=s
+    if s>11 and a==4:    ns=s
+    return ns, -1
+
+Q = np.zeros((16,4))
+alpha=0.1; gamma=0.9; eps=0.1
+
+def choose_action(s):
+    return np.random.randint(4) if np.random.rand()<eps else np.argmax(Q[s])
+
+for ep in range(5000):
+    s=np.random.randint(1,15)
+    a=choose_action(s)
+    while s not in terminal:
+        ns,r=step(s, actions[a])
+        na=choose_action(ns)
+        Q[s,a]+=alpha*(r + gamma*Q[ns,na] - Q[s,a])
+        s, a = ns, na
+
+print("Q-values:\n",Q)
+print("\nOptimal Policy (0=L,1=R,2=U,3=D):")
+print(np.argmax(Q,axis=1).reshape(4,4))
+
+    </pre>
+
+    <pre id="qlearning">
+        # **8.Implement Q Learning**
+import numpy as np
+np.random.seed(5)
+
+terminal=[0,15]
+actions=[-1,1,-4,4]
+
+def step(s,a):
+    ns=s+a
+    if s%4==0 and a==-1: ns=s
+    if s%4==3 and a==1:  ns=s
+    if s<4 and a==-4:    ns=s
+    if s>11 and a==4:    ns=s
+    return ns, -1
+
+Q=np.zeros((16,4))
+alpha=0.1; gamma=0.9; eps=0.1
+
+def choose(s):
+    return np.random.randint(4) if np.random.rand()<eps else np.argmax(Q[s])
+
+for ep in range(5000):
+    s=np.random.randint(1,15)
+    while s not in terminal:
+        a=choose(s)
+        ns,r=step(s, actions[a])
+        Q[s,a]+=alpha*(r + gamma*np.max(Q[ns]) - Q[s,a])
+        s=ns
+
+print("Q-table:\n",Q)
+print("\nOptimal Policy:")
+print(np.argmax(Q,axis=1).reshape(4,4))
+
+    </pre>
+
+    <pre id="dqn">
+        #DQN
+import random, collections, math, numpy as np, gymnasium as gym, torch
+import torch.nn as nn
+import torch.optim as optim
 import matplotlib.pyplot as plt
 
-# Download tokenizer (run once)
-nltk.download('punkt', quiet=True)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ---------------------------------------------------
-# 📌 SAMPLE TEXT CORPUS
-# ---------------------------------------------------
-text = """The dog barks. The cat meows. The dog runs fast.
-The cat sleeps. The dog eats food. The cat drinks milk."""
+# Simple Q-Network
+class QNetwork(nn.Module):
+    def __init__(self, obs_dim, n_actions):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, 128), nn.ReLU(),
+            nn.Linear(128, 128), nn.ReLU(),
+            nn.Linear(128, n_actions)
+        )
+    def forward(self, x):
+        return self.net(x)
 
-# ---------------------------------------------------
-# 📌 TOKENIZATION
-# ---------------------------------------------------
-def tokenize(text):
-    tokens = word_tokenize(text.lower())
-    return [t for t in tokens if t.isalnum()]
+# Replay buffer
+Transition = collections.namedtuple("Transition", ("s", "a", "r", "s2", "done"))
+class ReplayBuffer:
+    def __init__(self, capacity=10000):
+        self.buffer = collections.deque(maxlen=capacity)
+    def push(self, *args): self.buffer.append(Transition(*args))
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        return Transition(*zip(*batch))
+    def __len__(self): return len(self.buffer)
 
-tokens = tokenize(text)
-print("Tokens:", tokens)
+# DQN training function
+def train_dqn():
+    env = gym.make("CartPole-v1")
+    obs_dim = env.observation_space.shape[0]
+    n_actions = env.action_space.n
 
-# ---------------------------------------------------
-# 📌 BUILD BIGRAMS & TRIGRAMS
-# ---------------------------------------------------
-bigrams = list(ngrams(tokens, 2))
-trigrams = list(ngrams(tokens, 3))
+    policy_net = QNetwork(obs_dim, n_actions).to(device)
+    target_net = QNetwork(obs_dim, n_actions).to(device)
+    target_net.load_state_dict(policy_net.state_dict())
+    target_net.eval()
 
-# Frequency distributions
-unigram_freq = FreqDist(tokens)
-bigram_freq = FreqDist(bigrams)
-trigram_freq = FreqDist(trigrams)
+    optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
+    buffer = ReplayBuffer()
+    GAMMA, BATCH_SIZE, TARGET_UPDATE, EPS_DECAY = 0.99, 64, 500, 5000
+    EPS_START, EPS_END = 1.0, 0.01
+    total_steps, rewards = 0, []
 
-# Vocabulary size
-V = len(set(tokens))
+    def epsilon(step):
+        return EPS_END + (EPS_START - EPS_END) * math.exp(-1. * step / EPS_DECAY)
 
-# ---------------------------------------------------
-# 📌 BIGRAM & TRIGRAM PREDICTION
-# ---------------------------------------------------
-def predict_bigram(prev_word):
-    candidates = {w2: c for (w1, w2), c in bigram_freq.items() if w1 == prev_word}
-    if not candidates:
-        return None
-    return max(candidates, key=candidates.get)
+    for ep in range(300):
+        state, _ = env.reset()
+        done, ep_reward = False, 0
+        while not done:
+            eps = epsilon(total_steps)
+            total_steps += 1
+            if random.random() < eps:
+                action = env.action_space.sample()
+            else:
+                with torch.no_grad():
+                    s = torch.tensor(np.array(state), dtype=torch.float32, device=device).unsqueeze(0)
+                    action = int(policy_net(s).argmax(1).item())
 
-def predict_trigram(w1, w2):
-    candidates = {w3: c for (x1, x2, w3), c in trigram_freq.items() if x1 == w1 and x2 == w2}
-    if not candidates:
-        return None
-    return max(candidates, key=candidates.get)
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            buffer.push(state, action, reward, next_state, done)
+            state = next_state
+            ep_reward += reward
 
-print("Bigram Prediction after 'dog':", predict_bigram('dog'))
-print("Trigram Prediction after 'the dog':", predict_trigram('the', 'dog'))
+            if len(buffer) >= BATCH_SIZE:
+                transitions = buffer.sample(BATCH_SIZE)
+                s = torch.tensor(np.array(transitions.s), dtype=torch.float32, device=device)
+                a = torch.tensor(transitions.a, dtype=torch.int64, device=device).unsqueeze(1)
+                r = torch.tensor(transitions.r, dtype=torch.float32, device=device).unsqueeze(1)
+                s2 = torch.tensor(np.array(transitions.s2), dtype=torch.float32, device=device)
+                done_mask = torch.tensor(transitions.done, dtype=torch.float32, device=device).unsqueeze(1)
 
-# ---------------------------------------------------
-# 📌 PERPLEXITY CALCULATION (with Laplace smoothing)
-# ---------------------------------------------------
-def bigram_prob(w1, w2):
-    return (bigram_freq[(w1, w2)] + 1) / (unigram_freq[w1] + V)
+                q_vals = policy_net(s).gather(1, a)
+                with torch.no_grad():
+                    q_next = target_net(s2).max(1)[0].unsqueeze(1)
+                    q_target = r + GAMMA * q_next * (1 - done_mask)
 
-def trigram_prob(w1, w2, w3):
-    return (trigram_freq[(w1, w2, w3)] + 1) / (bigram_freq[(w1, w2)] + V)
+                loss = nn.functional.mse_loss(q_vals, q_target)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-def calculate_perplexity(tokens, n):
-    if n == 2:
-        log_prob = 0
-        N = len(bigrams)
-        for (w1, w2) in bigrams:
-            log_prob += math.log(bigram_prob(w1, w2))
-        return math.exp(-log_prob / N)
-    elif n == 3:
-        log_prob = 0
-        N = len(trigrams)
-        for (w1, w2, w3) in trigrams:
-            log_prob += math.log(trigram_prob(w1, w2, w3))
-        return math.exp(-log_prob / N)
+            if total_steps % TARGET_UPDATE == 0:
+                target_net.load_state_dict(policy_net.state_dict())
 
-bigram_perplexity = calculate_perplexity(tokens, 2)
-trigram_perplexity = calculate_perplexity(tokens, 3)
+        rewards.append(ep_reward)
+        if ep % 10 == 0:
+            print(f"Episode {ep} | Avg Reward: {np.mean(rewards[-10:]):.2f}")
 
-print("Bigram Perplexity:", bigram_perplexity)
-print("Trigram Perplexity:", trigram_perplexity)
-
-# ---------------------------------------------------
-# 📊 VISUALIZATION OF TOP N-GRAMS
-# ---------------------------------------------------
-def plot_freq(freq_dist, title, n):
-    most_common = freq_dist.most_common(10)
-    items, counts = zip(*most_common)
-    items = [' '.join(i) if isinstance(i, tuple) else i for i in items]
-    plt.figure(figsize=(8,4))
-    plt.bar(items, counts)
-    plt.title(title)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
+    env.close()
+    plt.plot(rewards)
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title("DQN Training (Gymnasium - CartPole)")
     plt.show()
 
-plot_freq(unigram_freq, "Top 10 Unigrams", 1)
-plot_freq(bigram_freq, "Top 10 Bigrams", 2)
-plot_freq(trigram_freq, "Top 10 Trigrams", 3)
+train_dqn()
 
-     
     </pre>
 
-    <pre id="lesk">
-   #lab 5:Implement Lesk algorithm or another WSD technique to resolve word meanings in context.
-import math
-import re
-from collections import Counter
-from typing import Optional, List, Tuple
+    <pre id="reinforce">
+        # Implement REINFORCE algorithm with Baseline
 
-# ====================================================================
-# NLTK & WordNet Setup
-# ====================================================================
-try:
-    import nltk
-    from nltk.corpus import wordnet as wn  # WordNet lexical database
-    from nltk.corpus import stopwords
-    from nltk import word_tokenize
-
-    # Download required data quietly
-    nltk.download("wordnet", quiet=True)
-    nltk.download("omw-1.4", quiet=True)
-    nltk.download("punkt", quiet=True)
-    nltk.download("stopwords", quiet=True)
-except Exception as e:
-    raise RuntimeError("NLTK and WordNet are required. Install nltk and run again.") from e
-
-STOPWORDS = set(stopwords.words("english"))
-
-# ====================================================================
-# Text Preprocessing Utility
-# ====================================================================
-def tokenize_and_normalize(text: str) -> List[str]:
-
-    text = text.lower()
-    # Use regex to extract words only
-    tokens = re.findall(r"\b\w+\b", text)
-    # Filter out stopwords and one-letter words
-    tokens = [t for t in tokens if t not in STOPWORDS and len(t) > 1]
-    return tokens
-
-# ====================================================================
-# Simplified Lesk Algorithm
-# ====================================================================
-def simplified_lesk(context_sentence: str, ambiguous_word: str, pos: Optional[str]=None) -> Optional[wn.synset]:
-
-    context = set(tokenize_and_normalize(context_sentence))
-    max_overlap = 0
-    best_sense = None
-
-    # Get all candidate meanings (synsets)
-    candidates = wn.synsets(ambiguous_word, pos=pos) if pos else wn.synsets(ambiguous_word)
-    if not candidates:
-        return None
-
-    for s in candidates:
-        # Construct the “signature” for each synset:
-        # Definition + Example sentences + Lemma names (synonyms)
-        signature = set(tokenize_and_normalize(s.definition()))
-        for ex in s.examples():
-            signature.update(tokenize_and_normalize(ex))
-        for lemma in s.lemma_names():
-            signature.update(tokenize_and_normalize(lemma.replace("_", " ")))
-
-        # Compute overlap (intersection) between context and signature
-        overlap = len(context & signature)
-
-        # Choose synset with maximum overlap (first tie-break: more common sense)
-        if overlap > max_overlap:
-            max_overlap = overlap
-            best_sense = s
-
-    return best_sense
-
-# ====================================================================
-# Extended Lesk Algorithm (Weighted Overlap)
-# ====================================================================
-def extended_lesk(context_sentence: str, ambiguous_word: str, pos: Optional[str]=None) -> Optional[wn.synset]:
-
-    context = set(tokenize_and_normalize(context_sentence))
-    best = None
-    best_score = -1.0
-
-    candidates = wn.synsets(ambiguous_word, pos=pos) if pos else wn.synsets(ambiguous_word)
-
-    for s in candidates:
-        sig_counter = Counter()
-
-        # Add words from definition (weight 2)
-        def_tokens = tokenize_and_normalize(s.definition())
-        for t in def_tokens:
-            sig_counter[t] += 2.0
-
-        # Add words from example sentences (weight 1.5)
-        for ex in s.examples():
-            for t in tokenize_and_normalize(ex):
-                sig_counter[t] += 1.5
-
-        # Add lemma (synonym) words (weight 2)
-        for lemma in s.lemma_names():
-            for t in tokenize_and_normalize(lemma.replace("_", " ")):
-                sig_counter[t] += 2.0
-
-        # Add hypernym (general sense) information with smaller weight (0.8)
-        for hyper in s.hypernyms():
-            for t in tokenize_and_normalize(hyper.definition()):
-                sig_counter[t] += 0.8
-            for lemma in hyper.lemma_names():
-                for t in tokenize_and_normalize(lemma.replace("_", " ")):
-                    sig_counter[t] += 0.8
-
-        # Compute weighted overlap score
-        score = sum(sig_counter[t] for t in context if t in sig_counter)
-
-        # Small bonus for frequent senses (based on number of lemmas)
-        score += 0.01 * len(s.lemma_names())
-
-        # Select best scoring sense
-        if score > best_score:
-            best = s
-            best_score = score
-
-    return best
-
-# ====================================================================
-# Embedding-based Lesk (Semantic Similarity)
-# ====================================================================
-def embed_lesk(context_sentence: str, ambiguous_word: str, pos: Optional[str]=None):
-
-    try:
-        from sentence_transformers import SentenceTransformer, util
-    except Exception:
-        raise RuntimeError("sentence-transformers is not installed. Install with `pip install sentence-transformers`")
-
-    # Load pretrained sentence embedding model
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    context = context_sentence
-
-    # Retrieve candidate synsets
-    candidates = wn.synsets(ambiguous_word, pos=pos) if pos else wn.synsets(ambiguous_word)
-    if not candidates:
-        return None
-
-    # Encode context as an embedding
-    ctx_emb = model.encode(context, convert_to_tensor=True)
-
-    synset_texts = []
-    synset_map = []
-
-    # Prepare text for each synset (definition + examples + lemmas)
-    for s in candidates:
-        parts = [s.definition()]
-        parts += s.examples()
-        parts += [ln.replace("_", " ") for ln in s.lemma_names()]
-        text = " . ".join(parts)
-        synset_texts.append(text)
-        synset_map.append(s)
-
-    # Encode all synsets
-    syn_embs = model.encode(synset_texts, convert_to_tensor=True)
-    # Compute cosine similarity between context and each synset embedding
-    cos_sims = util.cos_sim(ctx_emb, syn_embs)[0]
-    best_idx = int(cos_sims.argmax())
-
-    # Return synset with highest semantic similarity
-    return synset_map[best_idx]
-
-# ====================================================================
-# Demo / Example Execution
-# ====================================================================
-if __name__ == "__main__":
-    # Test sentences with ambiguous words
-    tests = [
-        ("I need to withdraw money from the bank to pay rent.", "bank"),
-        ("The river bank was filled with green reeds.", "bank"),
-        ("He watered the plant in the corner of the room.", "plant"),
-        ("The factory is a large plant with many workers.", "plant"),
-        ("He swung the bat and hit the ball.", "bat"),
-        ("A bat hung upside down in the cave.", "bat"),
-        ("She listens to rock all the time.", "rock"),
-        ("We climbed up on the rock by the sea.", "rock"),
-    ]
-
-    # ===============================================================
-    # 1) Simplified Lesk
-    # ===============================================================
-
-
-    # ===============================================================
-    # 2) Extended Lesk
-    # ===============================================================
-    print("\n==== Extended Lesk results ====\n")
-    for sent, word in tests:
-        sense = extended_lesk(sent, word)
-        print(f"Context: {sent}")
-        if sense:
-            print(f" Word: {word} -> Synset: {sense.name()}  | Definition: {sense.definition()}\n")
-        else:
-            print(f" Word: {word} -> NO SENSE FOUND\n")
-
-    # ===============================================================
-    # 3) Embedding-based Lesk (optional)
-    # ===============================================================
-    try:
-        print("\n==== Embedding-based Lesk results (sentence-transformers) ====\n")
-        for sent, word in tests:
-            sense = embed_lesk(sent, word)
-            print(f"Context: {sent}")
-            if sense:
-                print(f" Word: {word} -> Synset: {sense.name()}  | Definition: {sense.definition()}\n")
-            else:
-                print(f" Word: {word} -> NO SENSE FOUND\n")
-    except RuntimeError as e:
-        print("\nEmbedding-based Lesk skipped (sentence-transformers not installed).")
-        print("To run it, install: pip install sentence-transformers\n")
-
-   </pre>
-
-    <pre id="roles">
-        #lab6:Identify semantic roles (agent, patient, instrument) in sentences using dependency parsing.
-import spacy
-
-# Load English model
-nlp = spacy.load("en_core_web_sm")
-
-def identify_roles(sentence):
-    doc = nlp(sentence)
-    roles = {"Agent": None, "Patient": None, "Instrument": None}
-
-    for token in doc:
-        # Agent = subject of verb
-        if token.dep_ in ("nsubj", "nsubjpass"):
-            roles["Agent"] = token.text
-
-        # Patient = object of verb
-        elif token.dep_ in ("dobj", "obj"):
-            roles["Patient"] = token.text
-
-        # Instrument = prepositional phrase with "with"
-        elif token.dep_ == "pobj" and token.head.text == "with":
-            roles["Instrument"] = token.text
-
-    return roles
-
-# Test sentences
-sentences = [
-    "John cut the bread with a knife.",
-    "Mary wrote a letter with a pen.",
-    "The carpenter fixed the chair with a hammer.",
-    "The cat chased the mouse."
-]
-
-for s in sentences:
-    print(f"\nSentence: {s}")
-    print("Roles:", identify_roles(s))
-
-   
-   </pre>
-
-   <pre id="textrank">
-    #lab7:Implement LEXRANK or TextRank to generate summaries from news articles.
-import nltk
-nltk.download("punkt")
-nltk.download("punkt_tab")   # <-- required to fix the LookupError
-
-import nltk
-import numpy as np
-import networkx as nx
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-# Download NLTK resources
-nltk.download("punkt")
-nltk.download("punkt_tab")
-
-def textrank_summarize(text, top_n=3):
-    # Step 1: Split text into sentences
-    sentences = nltk.sent_tokenize(text)
-
-    # Step 2: Convert sentences into TF-IDF vectors
-    vectorizer = TfidfVectorizer(stop_words="english")
-    tfidf_matrix = vectorizer.fit_transform(sentences)
-
-    # Step 3: Compute cosine similarity matrix
-    similarity_matrix = cosine_similarity(tfidf_matrix)
-
-    # Step 4: Build graph and apply PageRank
-    nx_graph = nx.from_numpy_array(similarity_matrix)
-    scores = nx.pagerank(nx_graph)
-
-    # Step 5: Rank sentences by score
-    ranked_sentences = sorted(((scores[i], s) for i, s in enumerate(sentences)), reverse=True)
-
-    # Step 6: Return top N sentences as summary
-    summary = " ".join([sent for _, sent in ranked_sentences[:top_n]])
-    return summary
-
-# Example news article text
-article = """
-Space exploration has expanded human understanding of the universe.
-Missions to Mars, the Moon, and distant asteroids provide valuable scientific data.
-Private companies are now partnering with space agencies to make space travel more affordable.
-Advancements in rocket technology and robotics have made deep space missions possible.
-Space exploration not only satisfies human curiosity but also leads to innovations that benefit life on Earth.
-"""
-
-# Generate summary
-summary = textrank_summarize(article, top_n=2)
-print("Original Article:\n", article)
-print("\nGenerated Summary:\n", summary)
-
-   
-   </pre>
-   <pre id="sentiment">
-    ##lab8:Train a sentiment classifier (Naive Bayes, LSTM, or BERT) on IMDb reviews.
-#sentiment_nb_imdb.py
-# Train a TF-IDF + MultinomialNB sentiment classifier on the IMDb reviews dataset,
-# evaluate and save model + vectorizer. Output formatting attempts to match the screenshot.
-
-import os
-import joblib
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import gymnasium as gym
 import numpy as np
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+# ---------------------------------------------
+#  Policy Network (Actor)
+# ---------------------------------------------
+class PolicyNetwork(nn.Module):
+    def _init_(self, state_dim, action_dim):
+        super()._init_()
+        self.fc = nn.Sequential(
+            nn.Linear(state_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, action_dim),
+            nn.Softmax(dim=-1)
+        )
 
-# Option A: load imdb_reviews using tensorflow_datasets (recommended)
-# This will download the dataset the first time you run it.
-def load_imdb_with_tfds():
-    try:
-        import tensorflow_datasets as tfds
-    except Exception as e:
-        raise RuntimeError(
-            "tensorflow_datasets is required for this loader. Install with: pip install tensorflow-datasets"
-        ) from e
+    def forward(self, x):
+        return self.fc(x)
 
-    ds_train, ds_test = tfds.load('imdb_reviews', split=['train', 'test'], as_supervised=True)
-    def ds_to_lists(ds):
-        texts = []
-        labels = []
-        for text, label in tfds.as_numpy(ds):
-            # text is bytes -> decode
-            if isinstance(text, bytes):
-                text = text.decode('utf-8', errors='ignore')
-            texts.append(text)
-            labels.append(int(label))
-        return texts, labels
+# ---------------------------------------------
+#  Baseline Network (State Value)
+# ---------------------------------------------
+class ValueNetwork(nn.Module):
+    def _init_(self, state_dim):
+        super()._init_()
+        self.fc = nn.Sequential(
+            nn.Linear(state_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
 
-    X_train_texts, y_train = ds_to_lists(ds_train)
-    X_test_texts, y_test = ds_to_lists(ds_test)
-    return X_train_texts, y_train, X_test_texts, y_test
+    def forward(self, x):
+        return self.fc(x)
+
+# ---------------------------------------------
+#  Compute discounted returns
+# ---------------------------------------------
+def compute_returns(rewards, gamma=0.99):
+    returns = []
+    R = 0
+    for r in reversed(rewards):
+        R = r + gamma * R
+        returns.insert(0, R)
+    return torch.tensor(returns, dtype=torch.float32)
+
+# ---------------------------------------------
+#  REINFORCE with Baseline – Training Loop
+# ---------------------------------------------
+env = gym.make("CartPole-v1")
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.n
+
+policy_net = PolicyNetwork(state_dim, action_dim)
+value_net = ValueNetwork(state_dim)
+
+policy_optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
+value_optimizer = optim.Adam(value_net.parameters(), lr=1e-3)
+
+num_episodes = 100
+gamma = 0.99
+
+for episode in range(num_episodes):
+    state, _ = env.reset()
+    log_probs, values, rewards = [], [], []
+    done = False
+
+    while not done:
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        probs = policy_net(state_tensor)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample()
+
+        next_state, reward, terminated, truncated, _ = env.step(action.item())
+        done = terminated or truncated
+
+        log_probs.append(dist.log_prob(action))
+        values.append(value_net(state_tensor))
+        rewards.append(reward)
+
+        state = next_state
+
+    # Compute returns
+    returns = compute_returns(rewards, gamma)
+    values = torch.cat(values).squeeze()
+
+    # Baseline is value function (detached)
+    baseline = values.detach()
+
+    # Advantage = Return - Baseline
+    advantages = returns - baseline
+
+    # Policy loss
+    policy_loss = -(torch.stack(log_probs) * advantages).mean()
+
+    # Value loss = MSE(Returns, Baseline)
+    value_loss = (returns - values).pow(2).mean()
+
+    # Update policy
+    policy_optimizer.zero_grad()
+    policy_loss.backward()
+    policy_optimizer.step()
+
+    # Update value baseline
+    value_optimizer.zero_grad()
+    value_loss.backward()
+    value_optimizer.step()
+
+    print(f"Episode {episode+1}: Reward = {sum(rewards)}")
+
+env.close()
+print("REINFORCE with baseline training finished.")
+    </pre>
+
+    <pre id="reinforce1">
+        # Implement REINFORCE algorithm with Advantage Function.
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import gymnasium as gym
+import numpy as np
+
+# ---------------------------------------------
+#  Policy Network (Actor)
+# ---------------------------------------------
+class PolicyNetwork(nn.Module):
+    def _init_(self, state_dim, action_dim):
+        super()._init_()
+        self.fc = nn.Sequential(
+            nn.Linear(state_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, action_dim),
+            nn.Softmax(dim=-1)
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+# ---------------------------------------------
+#  Value Network (Critic)
+# ---------------------------------------------
+class ValueNetwork(nn.Module):
+    def _init_(self, state_dim):
+        super()._init_()
+        self.fc = nn.Sequential(
+            nn.Linear(state_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+# ---------------------------------------------
+#  Compute discounted returns
+# ---------------------------------------------
+def compute_returns(rewards, gamma=0.99):
+    R = 0
+    returns = []
+    for r in reversed(rewards):
+        R = r + gamma * R
+        returns.insert(0, R)
+    return torch.tensor(returns, dtype=torch.float32)
+
+# ---------------------------------------------
+#  REINFORCE with Advantage – Training Loop
+# ---------------------------------------------
+env = gym.make("CartPole-v1")
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.n
+
+policy_net = PolicyNetwork(state_dim, action_dim)
+value_net = ValueNetwork(state_dim)
+
+policy_optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
+value_optimizer = optim.Adam(value_net.parameters(), lr=1e-3)
+
+num_episodes = 100
+gamma = 0.99
+
+for episode in range(num_episodes):
+    state, _ = env.reset()
+    log_probs, values, rewards = [], [], []
+    done = False
+
+    while not done:
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        probs = policy_net(state_tensor)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample()
+
+        next_state, reward, terminated, truncated, _ = env.step(action.item())
+        done = terminated or truncated
+
+        log_probs.append(dist.log_prob(action))
+        values.append(value_net(state_tensor))
+        rewards.append(reward)
+
+        state = next_state
+
+    # Compute returns
+    returns = compute_returns(rewards, gamma)
+    values = torch.cat(values).squeeze()
+
+    # ADVANTAGE = Return − Value Estimate
+    advantages = returns - values.detach()
+
+    # POLICY LOSS (Actor)
+    policy_loss = -(torch.stack(log_probs) * advantages).mean()
+
+    # VALUE LOSS (Critic)
+    value_loss = (returns - values).pow(2).mean()
+
+    # Update policy
+    policy_optimizer.zero_grad()
+    policy_loss.backward()
+    policy_optimizer.step()
+
+    # Update critic
+    value_optimizer.zero_grad()
+    value_loss.backward()
+    value_optimizer.step()
+
+    print(f"Episode {episode+1}: Reward = {sum(rewards)}")
+
+env.close()
+print("REINFORCE with advantage training finished.")
+    </pre>
+
+    <pre id="control">
+        # **12. Implement the Monte Carlo prediction and control.**
+import numpy as np
+np.random.seed(0)
+
+actions = [-1, 1, -4, 4]         # L, R, U, D
+terminal = [0, 15]
+
+# Arrow mapping
+ARROWS = {
+    -1: "←",
+     1: "→",
+    -4: "↑",
+     4: "↓",
+    "T": "T"
+}
+
+def step(s,a):
+    ns = s + a
+    if s % 4 == 0 and a == -1: ns = s
+    if s % 4 == 3 and a == 1:  ns = s
+    if s < 4 and a == -4:      ns = s
+    if s > 11 and a == 4:      ns = s
+    return ns, -1
+
+Q = np.zeros((16,4))
+returns = { (s,a):[] for s in range(16) for a in range(4) }
+eps = 0.1
+gamma = 1.0
+
+def choose(s):   # ε-greedy
+    if np.random.rand() < eps:
+        return np.random.randint(4)
+    return np.argmax(Q[s])
+
+# Monte Carlo Control
+for ep in range(5000):
+    s = np.random.randint(1,15)
+    episode = []
+
+    while s not in terminal:
+        a = choose(s)
+        ns, r = step(s, actions[a])
+        episode.append((s,a,r))
+        s = ns
+
+    G = 0
+    for i in reversed(range(len(episode))):
+        s, a, r = episode[i]
+        G += r
+
+        # First-visit check
+        if not any(s == x[0] and a == x[1] for x in episode[:i]):
+            returns[(s,a)].append(G)
+            Q[s,a] = np.mean(returns[(s,a)])
+
+# Greedy policy
+policy_idx = np.argmax(Q, axis=1)
+
+# Convert to arrows
+arrow_policy = []
+for s in range(16):
+    if s in terminal:
+        arrow_policy.append(ARROWS["T"])
+    else:
+        arr = ARROWS[ actions[ policy_idx[s] ] ]
+        arrow_policy.append(arr)
+
+arrow_policy = np.array(arrow_policy).reshape(4,4)
+
+print("Optimal Policy (arrows):")
+print(arrow_policy)
+
+print("\nQ-table:")
+print(Q)
+
+    </pre>
+
+    <pre id="function">
+        #Q13: To implement function approximation using linear model
+
+import numpy as np
+
+# Gridworld
+N_ROWS, N_COLS = 4, 4
+TERMINAL = [0, 15]
+
+# Step function
+def step(s, a):
+    r, c = divmod(s, N_COLS)
+    dr, dc = {0:(-1,0), 1:(1,0), 2:(0,-1), 3:(0,1)}[a]  # U,D,L,R
+    nr, nc = min(max(r + dr, 0), N_ROWS-1), min(max(c + dc, 0), N_COLS-1)
+    ns = nr * N_COLS + nc
+    reward = -1
+    return ns, reward
+
+# --- Features ---
+def features(s):
+    r, c = divmod(s, N_COLS)
+    return np.array([r, c, 1.0])   # simple 3-dimensional features
+
+# --- Linear Value Function ---
+def V(s, w):
+    return np.dot(w, features(s))
+
+# --- TD(0) with function approximation ---
+def td_linear(alpha=0.01, gamma=0.99, episodes=1000):
+    w = np.zeros(3)  # weights for the linear model
+
+    for ep in range(episodes):
+        s = np.random.randint(1, 15)   # start non-terminal
+
+        while s not in TERMINAL:
+            # choose a random action for prediction-only
+            a = np.random.choice([0,1,2,3])
+
+            ns, r = step(s, a)
+
+            # TD target
+            td_target = r + gamma * (0 if ns in TERMINAL else V(ns, w))
+            td_error = td_target - V(s, w)
+
+            # gradient update: w += alpha * error * x(s)
+            w += alpha * td_error * features(s)
+
+            s = ns
+
+    return w
+
+# --- Run ---
+w = td_linear()
+print("Learned weights w:", w)
+
+# Value table from approximator
+value_table = np.array([V(s, w) for s in range(16)]).reshape(4,4)
+print("\nApproximated Value Function:")
+print(value_table)
+
+    </pre>
 
 
-# Option B: If you already have raw text files: provide your own loader function here.
-# For example, if you have a CSV with 'review' and 'sentiment' columns, implement loader accordingly.
+    <pre id="keywords">
+        Policy evaluation using Monte Carlo Method (using any method for 4×4 grid world)=policy
+        Simple MDP simulation in a 4×4 grid world for Markov Decision Process (MDP) for planning with Value Iteration=mdp
+        Simple MDP simulation in a 4x4 grid world for markov decision process (MDP) for Rollout the optimal policy from (0,0)=mdprollout
+        Simple MDP simulation in a 4x4 grid world for Markov Decision Process (MDP), 
+        Learn from interaction with Q-learning (unknown model)= mdpunknown
+        TD(0)= td0
+        #TD(lambda)Learning= td1
+        Implement SARSA= sarsa
+        Q Learning= qlearning
+        DQN=dqn
+        Implement REINFORCE algorithm with Baseline= reinforce
+        Implement REINFORCE algorithm with Advantage Function.=reinforce1
+        Implement the Monte Carlo prediction and control=control
+        To implement function approximation using linear model=function
 
-if __name__ == "__main__":
-    OUTPUT_DIR = "outputs"
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    </pre>
 
-    print("Vectorizing texts with TF-IDF...")
-    # Load data
-    X_train_texts, y_train, X_test_texts, y_test = load_imdb_with_tfds()
 
-    # Combine train+test then re-split to reproduce exact train/test sizes if you prefer:
-    # Here we will use the official train/test split from tfds (25000 train, 25000 test).
-    # But we will also show an alternative commented re-split if desired.
-    # If you want to shuffle and re-split differently, uncomment the block below:
-    #
-    # all_texts = X_train_texts + X_test_texts
-    # all_labels = list(y_train) + list(y_test)
-    # X_train_texts, X_test_texts, y_train, y_test = train_test_split(
-    #     all_texts, all_labels, test_size=0.5, random_state=42, stratify=all_labels
-    # )
-
-    # Configure TF-IDF (these hyperparameters often give ~0.84-0.86 test accuracy)
-    vectorizer = TfidfVectorizer(
-        max_df=0.95,
-        min_df=2,
-        max_features=20000,
-        ngram_range=(1, 2),
-        stop_words='english'
-    )
-
-    # Fit on training texts
-    X_train = vectorizer.fit_transform(X_train_texts)
-    X_test = vectorizer.transform(X_test_texts)
-
-    print("Training MultinomialNB...")
-    # Choose alpha; tune if you want slightly different metrics
-    clf = MultinomialNB(alpha=0.7)
-    clf.fit(X_train, y_train)
-
-    print("Evaluating...")
-    y_pred = clf.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    # Print accuracy in same style as the screenshot
-    print(f"Test Accuracy: {acc:.4f}\n")
-
-    # classification_report with 4 decimal digits to match the screenshot formatting
-    report = classification_report(y_test, y_pred, digits=4)
-    # sklearn's classification_report prints support as integers and shows accuracy + avg rows
-    print(report)
-
-    # Save model and vectorizer
-    model_path = os.path.join(OUTPUT_DIR, "multinomial_nb_imdb.joblib")
-    vec_path = os.path.join(OUTPUT_DIR, "tfidf_vectorizer_imdb.joblib")
-    joblib.dump(clf, model_path)
-    joblib.dump(vectorizer, vec_path)
-
-    print(f"Saved model and vectorizer to {OUTPUT_DIR}")
-    print("Done.")
-
-   
-   </pre>
+    
    
 
     
