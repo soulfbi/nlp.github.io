@@ -658,8 +658,8 @@ if __name__ == "__main__":
 
     </pre>
 
-    <pre id="sarsa">
-        #**7.Implement SARSA**
+    <pre id="sarsa" >
+        7.Implement SARSA
 import numpy as np
 np.random.seed(3)
 
@@ -670,7 +670,7 @@ def step(s,a):
     ns=s+a
     if s%4==0 and a==-1: ns=s
     if s%4==3 and a==1:  ns=s
-    if s<4 and a==-4:    ns=s
+    if s&lt;4 and a==-4:    ns=s
     if s>11 and a==4:    ns=s
     return ns, -1
 
@@ -678,7 +678,7 @@ Q = np.zeros((16,4))
 alpha=0.1; gamma=0.9; eps=0.1
 
 def choose_action(s):
-    return np.random.randint(4) if np.random.rand()<eps else np.argmax(Q[s])
+    return np.random.randint(4) if np.random.rand()&lt;eps else np.argmax(Q[s])
 
 for ep in range(5000):
     s=np.random.randint(1,15)
@@ -696,7 +696,7 @@ print(np.argmax(Q,axis=1).reshape(4,4))
     </pre>
 
     <pre id="qlearning">
-        # **8.Implement Q Learning**
+         # **8.Implement Q Learning**
 import numpy as np
 np.random.seed(5)
 
@@ -707,7 +707,7 @@ def step(s,a):
     ns=s+a
     if s%4==0 and a==-1: ns=s
     if s%4==3 and a==1:  ns=s
-    if s<4 and a==-4:    ns=s
+    if s&lt;4 and a==-4:    ns=s
     if s>11 and a==4:    ns=s
     return ns, -1
 
@@ -715,7 +715,7 @@ Q=np.zeros((16,4))
 alpha=0.1; gamma=0.9; eps=0.1
 
 def choose(s):
-    return np.random.randint(4) if np.random.rand()<eps else np.argmax(Q[s])
+    return np.random.randint(4) if np.random.rand()&lt;eps else np.argmax(Q[s])
 
 for ep in range(5000):
     s=np.random.randint(1,15)
@@ -727,7 +727,7 @@ for ep in range(5000):
 
 print("Q-table:\n",Q)
 print("\nOptimal Policy:")
-print(np.argmax(Q,axis=1).reshape(4,4))
+print(np.argmax(Q,axis=1).reshape(4,4)) 
 
     </pre>
 
