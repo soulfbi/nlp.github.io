@@ -289,64 +289,74 @@ print(
     </pre>
 
     <pre id="llama">
-        # Lab 5
-#Integrate LLaMA with LangChain for prompt chaining.
+        # Q5: Integrate LLaMA with LangChain for prompt chaining.
 
-# !pip install -q langchain langchain_community transformers accelerate sentencepiece torch
+# Install once per runtime:
+# !pip install -q langchain-core langchain-community transformers accelerate sentencepiece torch
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import PromptTemplate
-from langchain_classic.chains import LLMChain, SequentialChain
+from langchain_core.runnables import RunnableSequence
 
 model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    device_map="auto",
+    torch_dtype="auto"
+)
 
-pipe = pipeline(
+hf_pipe = pipeline(
     "text-generation",
     model=model,
     tokenizer=tokenizer,
     max_new_tokens=60,
     temperature=0.6,
     top_p=0.9,
-    do_sample=True
+    do_sample=True,
 )
 
-llm = HuggingFacePipeline(pipeline=pipe)
+llm = HuggingFacePipeline(pipeline=hf_pipe)
 
 summary_prompt = PromptTemplate(
     input_variables=["text"],
-    template="Summarize this paragraph in one sentence:\n{text}\n\nSummary:"
+    template="Summarize this paragraph in one sentence:\n{text}"
 )
 
 question_prompt = PromptTemplate(
     input_variables=["summary"],
-    template="Based on this summary, write a simple question:\n{summary}\n\nQuestion:"
+    template="Based on this summary, write a simple question:\n{summary}"
 )
 
 answer_prompt = PromptTemplate(
     input_variables=["question"],
-    template="Give a short answer to this question:\n{question}\n\nAnswer:"
+    template="Give a short answer to this question:\n{question}"
 )
 
-summary_chain = LLMChain(llm=llm, prompt=summary_prompt, output_key="summary")
-question_chain = LLMChain(llm=llm, prompt=question_prompt, output_key="question")
-answer_chain = LLMChain(llm=llm, prompt=answer_prompt, output_key="answer")
+# Each stage: PromptTemplate -> LLM
+summary_runnable = summary_prompt | llm
+question_runnable = question_prompt | llm
+answer_runnable = answer_prompt | llm
 
-chain = SequentialChain(
-    chains=[summary_chain, question_chain, answer_chain],
-    input_variables=["text"],
-    output_variables=["summary", "question", "answer"]
+# Full chain using RunnableSequence
+overall_chain = RunnableSequence(
+    summary_runnable,
+    question_runnable,
+    answer_runnable,
 )
 
-text = """Artificial Intelligence is transforming industries by automating tasks,
-enhancing decision-making, and creating new opportunities for innovation."""
+text = "Generate a sample database schema for an e-commerce site."
 
-result = chain({"text": text})
-print("Summary:", result["summary"].strip())
-print("Question:", result["question"].strip())
-print(" Answer:", result["answer"].strip())
+# Invoke the chain
+summary = summary_runnable.invoke({"text": text})
+question = question_runnable.invoke({"summary": summary})
+answer = answer_runnable.invoke({"question": question})
+
+print("Summary:", summary.strip())
+print("Question:", question.strip())
+print("Answer:", answer.strip())
 
     </pre>
 
@@ -463,8 +473,6 @@ Image.fromarray(img)
     </pre>
 
     <pre id="image">
-        # Q8 Generate a high-resolution image from a low-resolution input using a
-pretrained ESRGAN (Enhanced Super-Resolution GAN) model.: image
         # Step 1 — Enable GPU
 # Runtime → Change runtime type → GPU
 
@@ -532,16 +540,137 @@ plt.tight_layout()
 plt.show()
     </pre>
 
+    <pre id="chatbot">
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+# Load free model (small and runs on CPU)
+model_name = "microsoft/DialoGPT-small"
+
+print("⏳ Loading model...")
+
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Chat loop
+chat_history_ids = None
+
+print("🤖 Chatbot ready! Type 'exit' to quit.\n")
+
+while True:
+    user_input = input("You: ")
+    if user_input.lower() == "exit":
+        print("Chatbot: Goodbye! 👋")
+        break
+
+    # Encode user input + history
+    new_input_ids = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
+
+    if chat_history_ids is not None:
+        bot_input_ids = torch.cat([chat_history_ids, new_input_ids], dim=-1)
+    else:
+        bot_input_ids = new_input_ids
+
+    # Generate response
+    chat_history_ids = model.generate(
+        bot_input_ids,
+        max_length=200,
+        pad_token_id=tokenizer.eos_token_id,
+        do_sample=True,
+        top_k=50,
+        temperature=0.7
+    )
+
+    # Decode and print response
+    response = tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)
+    print("Chatbot:", response)
+    print()
+
+    </pre>
+
+    <pre id="chatbot1">
+        # Lab 7
+
+# !pip install transformers torch langchain sentencepiece
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from langchain.llms.base import LLM
+from langchain.chains import ConversationChain
+from langchain.memory import ConversationBufferMemory
+
+# Load Hugging Face Model
+model_name = "gpt2"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Use Hugging Face pipeline for text generation
+generator = pipeline(
+    "text-generation",
+    model=model,
+    tokenizer=tokenizer,
+    max_length=200,
+    do_sample=True,
+    temperature=0.7
+)
+
+# Wrap as LangChain LLM
+class HuggingFaceLLM(LLM):
+    """LangChain wrapper for Hugging Face transformers"""
+
+    @property
+    def _llm_type(self):
+        return "huggingface"
+
+    def _call(self, prompt: str, stop=None):
+        output = generator(prompt, max_length=200, num_return_sequences=1)
+        return output[0]["generated_text"]
+
+# Instantiate the LLM
+llm = HuggingFaceLLM()
+
+# Setup ConversationChain
+memory = ConversationBufferMemory()
+chatbot = ConversationChain(llm=llm, memory=memory)
+
+# Run Chat Loop
+print("Chatbot is ready! Type 'exit' to quit.")
+while True:
+    user_input = input("You: ")
+    if user_input.lower() in ["exit", "quit"]:
+        print("Chatbot: Goodbye!")
+        break
+    response = chatbot.run(user_input)
+    print("Chatbot:", response)
+
+
+# 1
+pip install langchain_google_genai
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Initialize Gemini
+llm = ChatGoogleGenerativeAI( model='gemini-2.0-flash-lite', api_key='AIzaSyD1BbDe6eQaFe2_X68hrJn7rVgtsBh_fuA')
+
+while True:
+    user_input = input("You: ")
+    if user_input.lower() in ["exit", "quit"]:
+        print("Chatbot: Goodbye!")
+        break
+    response = llm.invoke(user_input)
+    print("Chatbot:", response)
+    </pre>
+
     <pre id="keywords">
         #Q1:To Implement Prompt Engineering a Basic prompting, b Instruction based prompt-ing.: prompt
         #Q2: To implement Advanced Prompt Engineering Techniques a Chain-of-Thought (COT) Prompting, b Role-Based Prompting.: advanced
         #Q3: To implement Evaluation and Optimization for Prompt Engineering a Prompt De-bugging, b Prompt Evaluation Metrics.: debug
         # Q4:To implement prompting with Lanchang prompt.: Lanchang
         # Q5: Integrate LLaMA with LangChain for prompt chaining.: llama
+        #7: Chatbot: chatbot, chatbot1
          #Q6 Test LLM behavior with potentially biased or harmful prompts.: biased
         #Q9: Generate high-resolution human-like faces from random latent vectors.: human
-        Generate a high-resolution image from a low-resolution input using a
+        #Q8 Generate a high-resolution image from a low-resolution input using a
 pretrained ESRGAN (Enhanced Super-Resolution GAN) model.: image
+
 
 
     </pre>
